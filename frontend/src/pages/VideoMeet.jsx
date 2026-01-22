@@ -11,9 +11,9 @@ import MicOffIcon from "@mui/icons-material/MicOff";
 import ScreenShareIcon from "@mui/icons-material/ScreenShare";
 import StopScreenShareIcon from "@mui/icons-material/StopScreenShare";
 import ChatIcon from "@mui/icons-material/Chat";
-//import server from "../environment";
+import server from "../enviroment";
 
-const server_url = "http://localhost:8000";
+const server_url = server;
 
 var connections = {};
 
@@ -342,43 +342,68 @@ export default function VideoMeetComponent() {
           };
 
           // Wait for their video stream
+          // connections[socketListId].onaddstream = (event) => {
+          //   console.log("BEFORE:", videoRef.current);
+          //   console.log("FINDING ID: ", socketListId);
+
+          //   let videoExists = videoRef.current.find(
+          //     (video) => video.socketId === socketListId,
+          //   );
+
+          //   if (videoExists) {
+          //     console.log("FOUND EXISTING");
+
+          //     // Update the stream of the existing video
+          //     setVideos((videos) => {
+          //       const updatedVideos = videos.map((video) =>
+          //         video.socketId === socketListId
+          //           ? { ...video, stream: event.stream }
+          //           : video,
+          //       );
+          //       videoRef.current = updatedVideos;
+          //       return updatedVideos;
+          //     });
+          //   } else {
+          //     // Create a new video
+          //     console.log("CREATING NEW");
+          //     let newVideo = {
+          //       socketId: socketListId,
+          //       stream: event.stream,
+          //       autoplay: true,
+          //       playsinline: true,
+          //     };
+
+          //     setVideos((videos) => {
+          //       const updatedVideos = [...videos, newVideo];
+          //       videoRef.current = updatedVideos;
+          //       return updatedVideos;
+          //     });
+          //   }
+          // };
           connections[socketListId].onaddstream = (event) => {
-            console.log("BEFORE:", videoRef.current);
-            console.log("FINDING ID: ", socketListId);
+            setVideos((prevVideos) => {
+              const alreadyExists = prevVideos.some(
+                (v) => v.socketId === socketListId,
+              );
 
-            let videoExists = videoRef.current.find(
-              (video) => video.socketId === socketListId,
-            );
-
-            if (videoExists) {
-              console.log("FOUND EXISTING");
-
-              // Update the stream of the existing video
-              setVideos((videos) => {
-                const updatedVideos = videos.map((video) =>
-                  video.socketId === socketListId
-                    ? { ...video, stream: event.stream }
-                    : video,
+              if (alreadyExists) {
+                // update stream only
+                return prevVideos.map((v) =>
+                  v.socketId === socketListId
+                    ? { ...v, stream: event.stream }
+                    : v,
                 );
-                videoRef.current = updatedVideos;
-                return updatedVideos;
-              });
-            } else {
-              // Create a new video
-              console.log("CREATING NEW");
-              let newVideo = {
-                socketId: socketListId,
-                stream: event.stream,
-                autoplay: true,
-                playsinline: true,
-              };
+              }
 
-              setVideos((videos) => {
-                const updatedVideos = [...videos, newVideo];
-                videoRef.current = updatedVideos;
-                return updatedVideos;
-              });
-            }
+              // add new video only once
+              return [
+                ...prevVideos,
+                {
+                  socketId: socketListId,
+                  stream: event.stream,
+                },
+              ];
+            });
           };
 
           // Add the local video stream
