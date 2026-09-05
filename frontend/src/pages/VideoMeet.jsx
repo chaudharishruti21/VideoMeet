@@ -11,9 +11,13 @@ import MicOffIcon from "@mui/icons-material/MicOff";
 import ScreenShareIcon from "@mui/icons-material/ScreenShare";
 import StopScreenShareIcon from "@mui/icons-material/StopScreenShare";
 import ChatIcon from "@mui/icons-material/Chat";
-import server from "../enviroment";
+//import server from "../environment";
 
-const server_url = server;
+// FIX: use an env variable instead of a hardcoded localhost URL so this
+// works after deployment. Add VITE_API_URL to your frontend .env file,
+// e.g. VITE_API_URL=http://localhost:8000 for local dev, and your real
+// backend URL (e.g. https://your-backend.onrender.com) in production.
+const server_url = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 var connections = {};
 
@@ -136,6 +140,14 @@ export default function VideoMeetComponent() {
     connectToSocketServer();
   };
 
+  // FIX: helper to replace addStream() everywhere. addStream() is deprecated
+  // and unreliable in modern browsers; addTrack() is the current standard.
+  let addStreamToConnection = (connection, stream) => {
+    stream.getTracks().forEach((track) => {
+      connection.addTrack(track, stream);
+    });
+  };
+
   let getUserMediaSuccess = (stream) => {
     try {
       window.localStream.getTracks().forEach((track) => track.stop());
@@ -149,7 +161,7 @@ export default function VideoMeetComponent() {
     for (let id in connections) {
       if (id === socketIdRef.current) continue;
 
-      connections[id].addStream(window.localStream);
+      addStreamToConnection(connections[id], window.localStream);
 
       connections[id].createOffer().then((description) => {
         console.log(description);
@@ -185,7 +197,7 @@ export default function VideoMeetComponent() {
           localVideoref.current.srcObject = window.localStream;
 
           for (let id in connections) {
-            connections[id].addStream(window.localStream);
+            addStreamToConnection(connections[id], window.localStream);
 
             connections[id].createOffer().then((description) => {
               connections[id]
@@ -233,7 +245,7 @@ export default function VideoMeetComponent() {
     for (let id in connections) {
       if (id === socketIdRef.current) continue;
 
-      connections[id].addStream(window.localStream);
+      addStreamToConnection(connections[id], window.localStream);
 
       connections[id].createOffer().then((description) => {
         connections[id]
@@ -341,79 +353,58 @@ export default function VideoMeetComponent() {
             }
           };
 
-          // Wait for their video stream
-          // connections[socketListId].onaddstream = (event) => {
-          //   console.log("BEFORE:", videoRef.current);
-          //   console.log("FINDING ID: ", socketListId);
+          // FIX: ontrack replaces the deprecated onaddstream. ontrack fires
+          // ONCE PER TRACK (audio and video are separate tracks on the same
+          // stream), so this handler runs twice for a single peer. The
+          // "does this peer already have a tile" check must happen inside
+          // the setVideos updater using prevVideos (always correct/current),
+          // NOT against videoRef.current from the outer closure - reading
+          // that ref here is a race with React's batched state updates and
+          // is what caused the same peer's video to be added twice.
+          connections[socketListId].ontrack = (event) => {
+            const incomingStream = event.streams && event.streams[0];
+            if (!incomingStream) return;
 
-          //   let videoExists = videoRef.current.find(
-          //     (video) => video.socketId === socketListId,
-          //   );
-
-          //   if (videoExists) {
-          //     console.log("FOUND EXISTING");
-
-          //     // Update the stream of the existing video
-          //     setVideos((videos) => {
-          //       const updatedVideos = videos.map((video) =>
-          //         video.socketId === socketListId
-          //           ? { ...video, stream: event.stream }
-          //           : video,
-          //       );
-          //       videoRef.current = updatedVideos;
-          //       return updatedVideos;
-          //     });
-          //   } else {
-          //     // Create a new video
-          //     console.log("CREATING NEW");
-          //     let newVideo = {
-          //       socketId: socketListId,
-          //       stream: event.stream,
-          //       autoplay: true,
-          //       playsinline: true,
-          //     };
-
-          //     setVideos((videos) => {
-          //       const updatedVideos = [...videos, newVideo];
-          //       videoRef.current = updatedVideos;
-          //       return updatedVideos;
-          //     });
-          //   }
-          // };
-          connections[socketListId].onaddstream = (event) => {
             setVideos((prevVideos) => {
               const alreadyExists = prevVideos.some(
-                (v) => v.socketId === socketListId,
+                (video) => video.socketId === socketListId,
               );
 
-              if (alreadyExists) {
-                // update stream only
-                return prevVideos.map((v) =>
-                  v.socketId === socketListId
-                    ? { ...v, stream: event.stream }
-                    : v,
-                );
-              }
+              const updatedVideos = alreadyExists
+                ? prevVideos.map((video) =>
+                    video.socketId === socketListId
+                      ? { ...video, stream: incomingStream }
+                      : video,
+                  )
+                : [
+                    ...prevVideos,
+                    {
+                      socketId: socketListId,
+                      stream: incomingStream,
+                      autoplay: true,
+                      playsinline: true,
+                    },
+                  ];
 
-              // add new video only once
-              return [
-                ...prevVideos,
-                {
-                  socketId: socketListId,
-                  stream: event.stream,
-                },
-              ];
+              videoRef.current = updatedVideos;
+              return updatedVideos;
             });
           };
 
           // Add the local video stream
           if (window.localStream !== undefined && window.localStream !== null) {
-            connections[socketListId].addStream(window.localStream);
+            addStreamToConnection(
+              connections[socketListId],
+              window.localStream,
+            );
           } else {
             let blackSilence = (...args) =>
               new MediaStream([black(...args), silence()]);
             window.localStream = blackSilence();
-            connections[socketListId].addStream(window.localStream);
+            addStreamToConnection(
+              connections[socketListId],
+              window.localStream,
+            );
           }
         });
 
@@ -422,7 +413,7 @@ export default function VideoMeetComponent() {
             if (id2 === socketIdRef.current) continue;
 
             try {
-              connections[id2].addStream(window.localStream);
+              addStreamToConnection(connections[id2], window.localStream);
             } catch (e) {}
 
             connections[id2].createOffer().then((description) => {
